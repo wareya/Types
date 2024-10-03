@@ -10,16 +10,6 @@
 #include <new> // placement new
 
 template<typename T>
-static inline size_t guess_alignment()
-{
-    size_t n = 1;
-    while (n < sizeof(T) && n != 0)
-        n *= 2;
-    if (n == 0) return sizeof(T);
-    return n;
-}
-
-template<typename T>
 class Shared {
     class SharedInner {
     public:
@@ -315,28 +305,27 @@ public:
             do_realloc(new_cap);
     }
     
-    constexpr void push_back(T item)
+    constexpr void insert_at(size_t i, const T & item)
     {
         if (mlength >= mcapacity)
         {
             mcapacity = mcapacity == 0 ? 1 : (mcapacity << 1);
             do_realloc(mcapacity);
         }
-        ::new((void*)(((T*)mbuffer) + mlength)) T(std::move(item));
+        
         mlength += 1;
+        
+        for (size_t j = mlength - 1; j > i; j--)
+        {
+            ::new((void*)(((T*)mbuffer) + j)) T(std::move(((T*)mbuffer)[j - 1]));
+            ((T*)mbuffer)[j - 1].~T();
+        }
+        
+        ::new((void*)(((T*)mbuffer) + i)) T(std::move(item));
     }
-    constexpr T pop_back()
+    constexpr void push_back(const T & item)
     {
-        if (mlength == 0)
-            throw;
-        
-        T ret(std::move(((T*)mbuffer)[mlength - 1]));
-        
-        ((T*)mbuffer)[mlength - 1].~T();
-        mlength -= 1;
-        maybe_shrink();
-        
-        return ret;
+        insert_at(size(), item);
     }
     constexpr T erase_at(size_t i)
     {
@@ -354,6 +343,10 @@ public:
         maybe_shrink();
         
         return ret;
+    }
+    constexpr T pop_back()
+    {
+        return erase_at(size() - 1);
     }
     constexpr void erase(const T * which)
     {
@@ -392,10 +385,10 @@ private:
         
         if (mcapacity != 0)
         {
-            mbuffer_raw = (char *)malloc(mcapacity * sizeof(T) + guess_alignment<T>());
+            mbuffer_raw = (char *)malloc(mcapacity * sizeof(T) + alignof(T));
             if (!mbuffer_raw) throw;
             mbuffer = mbuffer_raw;
-            while (size_t(mbuffer) % guess_alignment<T>())
+            while (size_t(mbuffer) % alignof(T))
                 mbuffer += 1;
         }
     }
@@ -416,10 +409,10 @@ private:
     {
         mcapacity = new_capacity;
         if (mlength > mcapacity) throw;
-        char * new_buf_raw = mcapacity ? (char *)malloc(mcapacity * sizeof(T) + guess_alignment<T>()) : nullptr;
+        char * new_buf_raw = mcapacity ? (char *)malloc(mcapacity * sizeof(T) + alignof(T)) : nullptr;
         if (mcapacity && !new_buf_raw) throw;
         char * new_buf = new_buf_raw;
-        while (size_t(new_buf) % guess_alignment<T>())
+        while (size_t(new_buf) % alignof(T))
             new_buf += 1;
         for (size_t i = 0; i < mlength; i++)
         {
